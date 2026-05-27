@@ -461,7 +461,10 @@ if run_btn and urls:
         status_box.success("🎉 Scraping complete!")
 
     except Exception as e:
-        status_box.error(f"❌ Error: {str(e)}")
+        import traceback
+        full_tb = traceback.format_exc()
+        status_box.error(f"❌ Error: {type(e).__name__}: {str(e)}")
+        st.code(full_tb, language="python")
         st.stop()
 
 # ─────────────────────────────────────────────

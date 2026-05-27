@@ -155,24 +155,6 @@ div[data-testid="stDataFrame"] {
     margin-bottom: 1rem;
 }
 
-.step-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 1.2rem 1.5rem;
-    margin-bottom: 0.8rem;
-}
-
-.step-card.active {
-    border-color: #58a6ff;
-    background: #0d1f33;
-}
-
-.step-card.done {
-    border-color: #3fb950;
-    background: #0d2818;
-}
-
 .how-it-works {
     background: #161b22;
     border: 1px solid #30363d;
@@ -251,9 +233,9 @@ def find_team_links(base_url, markdown_text):
 
 
 # ─────────────────────────────────────────────
-# ASYNC SCRAPER
+# ASYNC SCRAPER — no Streamlit calls inside!
 # ─────────────────────────────────────────────
-async def scrape_and_extract(urls, status_placeholder):
+async def scrape_and_extract(urls):
     from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
     browser_config = BrowserConfig(
@@ -289,7 +271,6 @@ async def scrape_and_extract(urls, status_placeholder):
     async with AsyncWebCrawler(config=browser_config) as crawler:
 
         # PASS 1
-        status_placeholder.info(f"🔍 Pass 1 — Scraping {len(urls)} homepages...")
         homepage_results = await crawler.arun_many(
             urls=urls, config=run_config, max_concurrent=50
         )
@@ -301,9 +282,8 @@ async def scrape_and_extract(urls, status_placeholder):
             else:
                 failed_urls.append(result.url)
 
-        # PASS 2 — retry
+        # PASS 2 — retry failed
         if failed_urls:
-            status_placeholder.info(f"🔄 Pass 2 — Retrying {len(failed_urls)} failed sites...")
             retry_results = await crawler.arun_many(
                 urls=failed_urls, config=retry_config, max_concurrent=20
             )
@@ -316,7 +296,6 @@ async def scrape_and_extract(urls, status_placeholder):
             failed_urls = still_failed
 
         # PASS 3 — team/about pages
-        status_placeholder.info("🔍 Pass 3 — Finding team & doctor pages...")
         team_urls_map = {}
         for url, result in results_map.items():
             for tl in find_team_links(url, result.markdown):
@@ -333,7 +312,6 @@ async def scrape_and_extract(urls, status_placeholder):
                     team_results[original] = team_results.get(original, "") + "\n" + tr.markdown
 
         # EXTRACT NAMES
-        status_placeholder.info("📋 Extracting doctor & team names...")
         for url in urls:
             if url in results_map:
                 result    = results_map[url]
@@ -358,13 +336,10 @@ async def scrape_and_extract(urls, status_placeholder):
     return all_data
 
 
-def run_scraper_sync(urls, status_placeholder):
-    """Run async scraper safely from Streamlit (new thread = new event loop)"""
+def run_scraper_sync(urls):
+    """Run async scraper in a fresh thread with its own event loop"""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(
-            asyncio.run,
-            scrape_and_extract(urls, status_placeholder)
-        )
+        future = executor.submit(asyncio.run, scrape_and_extract(urls))
         return future.result()
 
 
@@ -396,7 +371,6 @@ with left_col:
         placeholder="https://castordds.com\nhttps://waltonfamilydentistry.com\nhttps://northaustindentist.com\n..."
     )
 
-    # Parse & count URLs
     urls = []
     if url_input.strip():
         raw  = [line.strip() for line in url_input.strip().splitlines() if line.strip()]
@@ -450,11 +424,11 @@ if run_btn and urls:
     status_box   = st.empty()
     progress_bar = st.progress(0, text="Starting...")
 
-    status_box.info(f"🚀 Starting scrape of {len(urls)} websites...")
-    progress_bar.progress(10, text="Pass 1 — Scraping homepages...")
+    status_box.info(f"🚀 Scraping {len(urls)} websites — please wait, this may take a few minutes...")
+    progress_bar.progress(10, text="Scraping in progress...")
 
     try:
-        results = run_scraper_sync(urls, status_box)
+        results = run_scraper_sync(urls)
         st.session_state['results'] = results
         st.session_state['scraped'] = True
         progress_bar.progress(100, text="✅ Complete!")
@@ -462,9 +436,8 @@ if run_btn and urls:
 
     except Exception as e:
         import traceback
-        full_tb = traceback.format_exc()
         status_box.error(f"❌ Error: {type(e).__name__}: {str(e)}")
-        st.code(full_tb, language="python")
+        st.code(traceback.format_exc(), language="python")
         st.stop()
 
 # ─────────────────────────────────────────────
@@ -488,7 +461,6 @@ if st.session_state.get('scraped') and 'results' in st.session_state:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Filter tabs
     tab_all, tab_success, tab_failed = st.tabs([
         f"All ({len(df)})",
         f"✅ Success ({success_count})",
@@ -506,7 +478,6 @@ if st.session_state.get('scraped') and 'results' in st.session_state:
         df_fail = df[df['Status'].str.contains('FAILED', na=False)]
         st.dataframe(df_fail, use_container_width=True, height=400)
 
-    # Download buttons
     st.markdown("### 💾 Download Results")
     dl_col1, dl_col2, _ = st.columns([1, 1, 2])
 

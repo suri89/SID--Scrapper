@@ -181,7 +181,7 @@ div[data-testid="stDataFrame"] {
 def setup_browser():
     try:
         subprocess.run(
-            ["python", "-m", "playwright", "install", "chromium", "--with-deps"],
+            ["python", "-m", "playwright", "install", "chromium"],
             capture_output=True
         )
         return True

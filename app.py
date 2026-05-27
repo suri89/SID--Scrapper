@@ -4,7 +4,22 @@ import pandas as pd
 import re
 import io
 import subprocess
+import sys
+import os
 import concurrent.futures
+
+# ─────────────────────────────────────────────
+# INSTALL PLAYWRIGHT BROWSERS (RUNS EVERY COLD START)
+# ─────────────────────────────────────────────
+chrome_path = os.path.expanduser(
+    "~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome"
+)
+if not os.path.exists(chrome_path):
+    subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        check=True,
+        capture_output=False
+    )
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
@@ -175,22 +190,6 @@ div[data-testid="stDataFrame"] {
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# INSTALL PLAYWRIGHT (CACHED — RUNS ONCE ONLY)
-# ─────────────────────────────────────────────
-@st.cache_resource(show_spinner="⚙️ Setting up browser engine (first time only)...")
-def setup_browser():
-    try:
-        subprocess.run(
-            ["python", "-m", "playwright", "install", "chromium"],
-            capture_output=True
-        )
-        return True
-    except Exception:
-        return False
-
-setup_browser()
-
-# ─────────────────────────────────────────────
 # HELPER FUNCTIONS
 # ─────────────────────────────────────────────
 def clean_url(url):
@@ -284,7 +283,7 @@ async def scrape_and_extract(urls, status_placeholder):
         wait_until="networkidle",
     )
 
-    all_data   = []
+    all_data    = []
     results_map = {}
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -343,17 +342,17 @@ async def scrape_and_extract(urls, status_placeholder):
                 names_str = " | ".join(names) if names else "No names found"
                 title     = result.metadata.get("title", "N/A")
                 all_data.append({
-                    "Website URL":             url,
-                    "Status":                  "✅ SUCCESS",
-                    "Page Title":              title,
-                    "Doctors & Team Members":  names_str,
+                    "Website URL":            url,
+                    "Status":                 "✅ SUCCESS",
+                    "Page Title":             title,
+                    "Doctors & Team Members": names_str,
                 })
             else:
                 all_data.append({
-                    "Website URL":             url,
-                    "Status":                  "❌ FAILED",
-                    "Page Title":              "",
-                    "Doctors & Team Members":  "Could not load site",
+                    "Website URL":            url,
+                    "Status":                 "❌ FAILED",
+                    "Page Title":             "",
+                    "Doctors & Team Members": "Could not load site",
                 })
 
     return all_data
@@ -448,7 +447,7 @@ if run_btn and urls:
     st.markdown("---")
     st.markdown("### ⚡ Scraping Progress")
 
-    status_box  = st.empty()
+    status_box   = st.empty()
     progress_bar = st.progress(0, text="Starting...")
 
     status_box.info(f"🚀 Starting scrape of {len(urls)} websites...")

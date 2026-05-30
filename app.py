@@ -4,9 +4,18 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import io
-import time
+import gc
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin
+
+# ─────────────────────────────────────────────
+# CLEAR MEMORY ON FRESH TAB LOAD
+# ─────────────────────────────────────────────
+if 'initialized' not in st.session_state:
+    st.session_state.clear()
+    gc.collect()
+    st.session_state['initialized'] = True
 
 st.set_page_config(page_title="Dental Scraper", page_icon="🦷", layout="wide")
 
@@ -35,6 +44,8 @@ div[data-testid="stButton"] button[kind="primary"] {
 }
 </style>
 """, unsafe_allow_html=True)
+
+warnings.filterwarnings('ignore')
 
 # ── HEADERS ──────────────────────────────────────────────
 HEADERS = {
@@ -87,7 +98,6 @@ def fetch_page(url, timeout=15):
         r.raise_for_status()
         return r.text
     except Exception:
-        # try http fallback
         try:
             fallback = url.replace('https://', 'http://') if url.startswith('https') else url.replace('http://', 'https://')
             r = requests.get(fallback, headers=HEADERS, timeout=timeout,
@@ -108,17 +118,19 @@ def scrape_site(url):
     text  = soup.get_text(separator=' ', strip=True)
     names = extract_names(text)
 
-    # try team/about pages
-    team_links = find_team_links(url, soup)
-    for tlink in team_links:
+    for tlink in find_team_links(url, soup):
         thtml = fetch_page(tlink)
         if thtml:
             tsoup = BeautifulSoup(thtml, 'lxml')
             names += extract_names(tsoup.get_text(separator=' ', strip=True))
+            del tsoup, thtml
+
+    del soup, html, text
+    gc.collect()
 
     names = list(set(names))
-    names_str = " | ".join(names) if names else "No names found"
-    return {"url": url, "status": "✅ SUCCESS", "title": title, "names": names_str}
+    return {"url": url, "status": "✅ SUCCESS", "title": title,
+            "names": " | ".join(names) if names else "No names found"}
 
 # ── SCRAPE ALL (threaded) ─────────────────────────────────
 def scrape_all(urls, progress_bar, status_box):
@@ -132,11 +144,9 @@ def scrape_all(urls, progress_bar, status_box):
             result = future.result()
             results.append(result)
             done += 1
-            pct = int(done / total * 100)
-            progress_bar.progress(pct, text=f"Scraped {done}/{total} sites...")
+            progress_bar.progress(int(done / total * 100), text=f"Scraped {done}/{total} sites...")
             status_box.info(f"{'✅' if 'SUCCESS' in result['status'] else '❌'} {result['url'][:60]}")
 
-    # preserve original order
     url_order = {u: i for i, u in enumerate(urls)}
     results.sort(key=lambda r: url_order.get(r['url'], 9999))
     return results
@@ -172,16 +182,24 @@ with left:
                     f'font-size:0.85rem;margin-bottom:1rem">📊 {len(urls)} URLs ready</div>',
                     unsafe_allow_html=True)
 
-    run_btn = st.button(
-        "🚀 Start Scraping" if urls else "🚀 Start Scraping (paste URLs above)",
-        type="primary", disabled=len(urls) == 0
-    )
+    col_btn, col_clear = st.columns([3, 1])
+    with col_btn:
+        run_btn = st.button(
+            "🚀 Start Scraping" if urls else "🚀 Start Scraping (paste URLs above)",
+            type="primary", disabled=len(urls) == 0
+        )
+    with col_clear:
+        if st.button("🔄 Clear", type="secondary"):
+            st.session_state.clear()
+            gc.collect()
+            st.session_state['initialized'] = True
+            st.rerun()
 
 with right:
     st.markdown("### ℹ️ How It Works")
     st.markdown("""
 - Paste up to **200 dental website URLs**
-- Clicks Start — scrapes all sites simultaneously
+- Scrapes all sites simultaneously
 - Finds **team / about / doctors** pages automatically
 - Extracts **Dr. Names**, **DDS/DMD/RDH** credentials
 - Download as **Excel** (3 sheets) or **CSV**
@@ -192,6 +210,9 @@ with right:
         st.info(f"~{mins} min for {len(urls)} URLs")
     else:
         st.info("~30 seconds per 50 URLs")
+    
+    st.markdown("### 🧠 Memory Tip")
+    st.info("Refresh the tab between batches to free memory automatically.")
 
 # ── RUN SCRAPER ───────────────────────────────────────────
 if run_btn and urls:
@@ -199,18 +220,18 @@ if run_btn and urls:
     st.markdown("### ⚡ Live Progress")
     status_box   = st.empty()
     progress_bar = st.progress(0, text="Starting...")
-
     status_box.info(f"🚀 Scraping {len(urls)} sites...")
 
-    import warnings
-    warnings.filterwarnings('ignore')   # suppress SSL warnings
-
     raw_results = scrape_all(urls, progress_bar, status_box)
+
     st.session_state['results'] = [
         {"Website URL": r['url'], "Status": r['status'],
          "Page Title": r['title'], "Doctors & Team Members": r['names']}
         for r in raw_results
     ]
+    del raw_results
+    gc.collect()
+
     st.session_state['scraped'] = True
     progress_bar.progress(100, text="✅ Done!")
     status_box.success("🎉 Scraping complete!")
